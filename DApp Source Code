@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract TimeLock {
+    struct Lock {
+        uint256 amount;
+        uint256 unlockTime;
+        address withdrawalAddress;
+    }
+
+    mapping(address => Lock) public locks;
+
+    event Locked(address indexed user, uint256 amount, uint256 unlockTime, address indexed withdrawalAddress);
+    event Unlocked(address indexed user, uint256 amount, address indexed withdrawalAddress);
+
+    modifier nonReentrant() {
+        require(!locked, "Reentrant call");
+        locked = true;
+        _;
+        locked = false;
+    }
+
+    bool private locked;
+
+    function lockEther(uint256 _unlockTime, address _withdrawalAddress) external payable {
+        require(msg.value > 0, "Must send some Ether");
+        require(_unlockTime > block.timestamp, "Unlock time must be in the future");
+        require(_withdrawalAddress != address(0), "Invalid withdrawal address");
+
+        Lock storage userLock = locks[msg.sender];
+        userLock.amount += msg.value;
+        userLock.unlockTime = _unlockTime;
+        userLock.withdrawalAddress = _withdrawalAddress;
+
+        emit Locked(msg.sender, msg.value, _unlockTime, _withdrawalAddress);
+    }
+
+    function unlockEther() external nonReentrant {
+        Lock storage userLock = locks[msg.sender];
+        require(block.timestamp >= userLock.unlockTime, "Ether is still locked");
+        require(userLock.amount > 0, "No Ether to unlock");
+
+        uint256 amount = userLock.amount;
+        address withdrawalAddress = userLock.withdrawalAddress;
+        userLock.amount = 0;
+
+        emit Unlocked(msg.sender, amount, withdrawalAddress);
+
+        payable(withdrawalAddress).transfer(amount);
+    }
+
+    function getLockInfo(address _user) external view returns (uint256 amount, uint256 unlockTime, address withdrawalAddress) {
+        Lock storage userLock = locks[_user];
+        return (userLock.amount, userLock.unlockTime, userLock.withdrawalAddress);
+    }
+}
